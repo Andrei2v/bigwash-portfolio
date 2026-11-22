@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIG WASH - Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 0px; height: 0px; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f4f8;
+            color: #2d3748;
+        }
+
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: linear-gradient(180deg, #fef3c7 0%, #fde68a 100%);
+            padding: 20px;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 10px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #92400e;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: #fb923c;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            margin-bottom: 6px;
+            color: #78350f;
+            text-decoration: none;
+            border-radius: 10px;
+            transition: all 0.3s;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .menu-item:hover {
+            background: rgba(251, 146, 60, 0.2);
+        }
+
+        .menu-item.active {
+            background: white;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+
+        .menu-item-icon {
+            font-size: 18px;
+            width: 20px;
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: rgba(120, 53, 15, 0.2);
+            margin: 20px 0;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            margin-left: 260px;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            background: white;
+            padding: 16px 20px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .header-left h1 {
+            font-size: 20px;
+            color: #1a202c;
+            margin-bottom: 4px;
+        }
+
+        .breadcrumb {
+            color: #718096;
+            font-size: 13px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        /* Stats Row */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #718096;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .stat-change {
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .stat-change.positive {
+            color: #10b981;
+        }
+
+        .stat-card.profit .stat-value {
+            color: #10b981;
+        }
+
+        .stat-card.expenses .stat-value {
+            color: #ef4444;
+        }
+
+        .stat-card.balance .stat-value {
+            color: #3b82f6;
+        }
+
+        /* Chart Section */
+        .chart-section {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a202c;
+        }
+
+        .chart-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-sm:hover {
+            background: #f7fafc;
+        }
+
+        .btn-sm.active {
+            background: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+
+        .chart-container {
+            height: 280px;
+            position: relative;
+        }
+
+        /* Content Grid */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        /* Table Card */
+        .table-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .table-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1a202c;
+        }
+
+        .period-select {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            color: #4b5563;
+        }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #f9fafb;
+        }
+
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        td {
+            padding: 12px;
+            font-size: 13px;
+            color: #374151;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        .progress-bar {
+            width: 80px;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+        }
+
+        .progress-fill.cash {
+            background: #10b981;
+        }
+
+        .progress-fill.card {
+            background: #3b82f6;
+        }
+
+        .progress-fill.paypass {
+            background: #f59e0b;
+        }
+
+        /* Calendar - КОМПАКТНИЙ */
+        .calendar {
+            background: white;
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .calendar-title {
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .calendar-nav {
+            display: flex;
+            gap: 3px;
+        }
+
+        .calendar-nav button {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 2px;
+        }
+
+        .calendar-day-header {
+            text-align: center;
+            font-size: 8px;
+            color: #718096;
+            padding: 3px 0;
+            font-weight: 600;
+        }
+
+        .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 3px;
+            font-size: 9px;
+            cursor: pointer;
+        }
+
+        .calendar-day:hover {
+            background: #f7fafc;
+        }
+
+        .calendar-day.today {
+            background: #3b82f6;
+            color: white;
+            font-weight: bold;
+        }
+
+        .calendar-day.has-event {
+            background: #dbeafe;
+            color: #1e40af;
+            font-weight: 600;
+        }
+
+        .calendar-day.other-month {
+            color: #cbd5e0;
+        }
+
+        @media (max-width: 1400px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">🚗</div>
+                <span>BIG WASH</span>
+            </div>
+
+            <div class="menu-item active">
+                <span class="menu-item-icon">📊</span>
+                <span>Статистика</span>
+            </div>
+            
+            <div class="menu-item" onclick="location.href='cards.html'">
+                <span class="menu-item-icon">💳</span>
+                <span>Картки</span>
+            </div>
+
+            <div class="menu-item">
+                <span class="menu-item-icon">👥</span>
+                <span>Клієнти</span>
+            </div>
+
+            <div class="menu-item" onclick="location.href='operations.html'">
+                <span class="menu-item-icon">🔄</span>
+                <span>Операції</span>
+            </div>
+
+            <div class="menu-item" onclick="location.href='admins.html'">
+                <span class="menu-item-icon">👤</span>
+                <span>Адміністратори</span>
+            </div>
+
+            <div class="menu-divider"></div>
+
+            <div class="menu-item">
+                <span class="menu-item-icon">🔔</span>
+                <span>Сповіщення</span>
+            </div>
+            
+            <div class="menu-item">
+                <span class="menu-item-icon">❓</span>
+                <span>Довідка</span>
+            </div>
+            
+            <div class="menu-item">
+                <span class="menu-item-icon">🐛</span>
+                <span>Звіт про помилку</span>
+            </div>
+            
+            <div class="menu-item">
+                <span class="menu-item-icon">⚙️</span>
+                <span>Налаштування</span>
+            </div>
+
+            <div class="menu-item" onclick="logout()">
+                <span class="menu-item-icon">🚪</span>
+                <span>Вихід</span>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-left">
+                    <h1>Головна / Статистика</h1>
+                    <div class="breadcrumb">Оновлено: <span id="lastUpdate"></span></div>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-danger">🗑️ Видалити статистику</button>
+                    <button class="btn btn-primary">+ Обладнання</button>
+                </div>
+            </div>
+
+            <!-- Stats Row -->
+            <div class="stats-row">
+                <div class="stat-card profit">
+                    <div class="stat-label">💰 Прибуток</div>
+                    <div class="stat-value">₴ 125,521.02</div>
+                    <div class="stat-change positive">↗ +12.5% від минулого місяця</div>
+                </div>
+                
+                <div class="stat-card expenses">
+                    <div class="stat-label">💸 Витрати</div>
+                    <div class="stat-value">₴ 25,521.02</div>
+                    <div class="stat-change positive">↗ +5.2% від минулого місяця</div>
+                </div>
+                
+                <div class="stat-card balance">
+                    <div class="stat-label">💵 Баланс</div>
+                    <div class="stat-value">₴ 100,000.00</div>
+                    <div class="stat-change positive">↗ +8.3% від минулого місяця</div>
+                </div>
+            </div>
+
+            <!-- Chart Section -->
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="chart-title">Прибуток та витрати</div>
+                    <div class="chart-actions">
+                        <button class="btn-sm">День</button>
+                        <button class="btn-sm active">Місяць</button>
+                        <button class="btn-sm">Рік</button>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="mainChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Content Grid -->
+            <div class="content-grid">
+                <!-- Left Column -->
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <!-- Payment Methods -->
+                    <div class="table-card">
+                        <div class="table-header">
+                            <div class="table-title">Методи оплати</div>
+                            <select class="period-select">
+                                <option value="month" selected>Цей місяць</option>
+                            </select>
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Метод</th>
+                                    <th>Кількість</th>
+                                    <th>Відсоток</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>💵 Готівка</td>
+                                    <td>245</td>
+                                    <td>35%</td>
+                                    <td>
+                                        <div class="progress-bar">
+                                            <div class="progress-fill cash" style="width: 35%"></div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>💳 Картка</td>
+                                    <td>180</td>
+                                    <td>25%</td>
+                                    <td>
+                                        <div class="progress-bar">
+                                            <div class="progress-fill card" style="width: 25%"></div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>📱 PayPass</td>
+                                    <td>280</td>
+                                    <td>40%</td>
+                                    <td>
+                                        <div class="progress-bar">
+                                            <div class="progress-fill paypass" style="width: 40%"></div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Transactions -->
+                    <div class="table-card">
+                        <div class="table-header">
+                            <div class="table-title">Транзакції</div>
+                            <select class="period-select">
+                                <option value="month" selected>Цей місяць</option>
+                            </select>
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Тип транзакції</th>
+                                    <th>Сума</th>
+                                    <th>Кількість</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>💵 Готівка</td>
+                                    <td style="color: #10b981; font-weight: 600;">₴ 45,250.00</td>
+                                    <td>245</td>
+                                </tr>
+                                <tr>
+                                    <td>📱 PayPass</td>
+                                    <td style="color: #10b981; font-weight: 600;">₴ 52,100.00</td>
+                                    <td>280</td>
+                                </tr>
+                                <tr>
+                                    <td>💳 Картка</td>
+                                    <td style="color: #10b981; font-weight: 600;">₴ 28,171.02</td>
+                                    <td>180</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Right Column -->
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <!-- Quick Actions -->
+                    <div class="table-card">
+                        <div class="table-title" style="margin-bottom: 12px;">Швидкі дії</div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="location.href='cards.html'">
+                                💵 Додати картку
+                            </button>
+                            <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="location.href='operations.html'">
+                                🔄 Операції
+                            </button>
+                            <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="location.href='admins.html'">
+                                👤 Адміністратори
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Calendar - КОМПАКТНИЙ -->
+                    <div class="calendar">
+                        <div class="calendar-header">
+                            <div class="calendar-title" id="calendarTitle">Січень 2026</div>
+                            <div class="calendar-nav">
+                                <button onclick="changeMonth(-1)">←</button>
+                                <button onclick="changeMonth(1)">→</button>
+                            </div>
+                        </div>
+                        <div class="calendar-grid">
+                            <div class="calendar-day-header">Пн</div>
+                            <div class="calendar-day-header">Вт</div>
+                            <div class="calendar-day-header">Ср</div>
+                            <div class="calendar-day-header">Чт</div>
+                            <div class="calendar-day-header">Пт</div>
+                            <div class="calendar-day-header">Сб</div>
+                            <div class="calendar-day-header">Нд</div>
+                            <div id="calendarDays"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Chart
+        let mainChart;
+        
+        function initChart() {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            
+            mainChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Січ', 'Лют', 'Бер', 'Кві', 'Тра', 'Чер', 'Лип', 'Сер', 'Вер', 'Жов', 'Лис', 'Гру'],
+                    datasets: [{
+                        label: 'Прибуток',
+                        data: [45000, 52000, 48000, 61000, 58000, 65000, 72000, 68000, 75000, 82000, 88000, 95000],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }, {
+                        label: 'Витрати',
+                        data: [15000, 18000, 16000, 19000, 17000, 20000, 22000, 21000, 23000, 24000, 26000, 28000],
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return '₴' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Calendar
+        let currentMonth = 0;
+        let currentYear = 2026;
+        const monthNames = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень',
+                           'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
+
+        function renderCalendar() {
+            const firstDay = new Date(currentYear, currentMonth, 1);
+            const lastDay = new Date(currentYear, currentMonth + 1, 0);
+            const prevLastDay = new Date(currentYear, currentMonth, 0);
+            
+            const firstDayIndex = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+            const lastDate = lastDay.getDate();
+            const prevLastDate = prevLastDay.getDate();
+            
+            document.getElementById('calendarTitle').textContent = `${monthNames[currentMonth]} ${currentYear}`;
+            
+            let days = '';
+            
+            for (let i = firstDayIndex; i > 0; i--) {
+                days += `<div class="calendar-day other-month">${prevLastDate - i + 1}</div>`;
+            }
+            
+            const today = new Date();
+            for (let i = 1; i <= lastDate; i++) {
+                const isToday = i === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+                const hasEvent = [5, 12, 18, 25].includes(i);
+                
+                let classes = 'calendar-day';
+                if (isToday) classes += ' today';
+                else if (hasEvent) classes += ' has-event';
+                
+                days += `<div class="${classes}">${i}</div>`;
+            }
+            
+            const remainingDays = 42 - (firstDayIndex + lastDate);
+            for (let i = 1; i <= remainingDays; i++) {
+                days += `<div class="calendar-day other-month">${i}</div>`;
+            }
+            
+            document.getElementById('calendarDays').innerHTML = days;
+        }
+
+        function changeMonth(direction) {
+            currentMonth += direction;
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            } else if (currentMonth < 0) {
+                currentMonth = 11;
+                currentYear--;
+            }
+            renderCalendar();
+        }
+
+        // Time update
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'login.html';
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', function() {
+            initChart();
+            renderCalendar();
+            updateTime();
+            setInterval(updateTime, 60000);
+        });
+    </script>
+</body>
+</html>

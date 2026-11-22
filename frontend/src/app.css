@@ -1,0 +1,27 @@
+:root {
+    --bg-page: #f4f7f6;
+    --bg-card: #ffffff;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --border-color: #e2e8f0;
+    --accent: #38bdf8;
+    --bg-input: #f1f5f9;
+}
+
+:global(html.dark) {
+    --bg-page: #0f172a;
+    --bg-card: #1e293b;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --border-color: #334155;
+    --accent: #38bdf8;
+    --bg-input: #0f172a;
+}
+
+body {
+    background-color: var(--bg-page);
+    color: var(--text-main);
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    transition: background-color 0.3s ease;
+}
