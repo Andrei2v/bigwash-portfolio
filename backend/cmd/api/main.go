@@ -2,7 +2,10 @@ package main
 
 import (
 	"log"
+	"net"
+	"net/http"
 	"os"
+	"strconv"
 
 	"database/internal/config"
 	"database/internal/database"
@@ -12,6 +15,7 @@ import (
 	"database/migrations"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
@@ -22,20 +26,11 @@ func main() {
 	// 2. Подключение к БД
 	db, err := database.Connect(cfg.DBDsn)
 	if err != nil {
-		log.Fatal("❌ DB connection failed:", err)
+		log.Fatal("MySQL connection failed; check local configuration and database access")
 	}
 
-	// 3. Запуск миграций
-	if len(os.Args) > 1 && os.Args[1] == "--migrate" {
-		log.Println("⏳ Force running migrations...")
-		if err := migrations.ForceRunMigrations(db); err != nil {
-			log.Fatal("❌ Migration failed:", err)
-		}
-		log.Println("✅ Migrations completed!")
-	} else {
-		if err := migrations.RunMigrations(db); err != nil {
-			log.Fatal("❌ Migration failed:", err)
-		}
+	if err := migrations.RunMigrations(db); err != nil {
+		log.Fatal("database migration failed; check schema privileges and compatibility")
 	}
 
 	// 4. Инициализация WebSocket Hub
@@ -44,7 +39,12 @@ func main() {
 	log.Println("✅ WebSocket Hub started")
 
 	// 5. Настройка Gin
-	router := gin.Default()
+	if !cfg.LocalDev {
+		gin.SetMode(gin.ReleaseMode)
+	}
+	router := gin.New()
+	router.Use(gin.RecoveryWithWriter(nil))
+	_ = router.SetTrustedProxies(nil)
 	router.Use(middleware.CORS())
 
 	// Статичні файли
@@ -61,7 +61,7 @@ func main() {
 	// 7. Запуск сервера
 	log.Printf("🚀 Server starting on port %s\n", cfg.Port)
 	log.Printf("🌐 Open: http://localhost:%s/web/login.html\n", cfg.Port)
-	if err := router.Run(":" + cfg.Port); err != nil {
+	if err := router.Run(net.JoinHostPort(cfg.BindHost, cfg.Port)); err != nil {
 		log.Fatal("❌ Server failed:", err)
 	}
 }
@@ -72,16 +72,16 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 	}
 
 	// ========== DEBUG ==========
-	// Этот маршрут генерирует тестовые данные для проверки (Стереть базу и добавить 20 клиентов и админов)
-	if os.Getenv("BIGWASH_ENABLE_DEBUG_SEED") == "true" {
+	// Insert synthetic test records in the explicitly enabled local development API.
+	if cfg.LocalDev && os.Getenv("BIGWASH_ENABLE_DEBUG_SEED") == "true" {
 		seedHandler := handlers.NewSeedHandler(db)
-		r.GET("/api/v1/debug/seed", seedHandler.SeedData)
+		r.POST("/api/v1/debug/seed", middleware.AuthMiddleware(cfg.JWTSecret), middleware.RequireStaff(db, true), seedHandler.SeedData)
 	}
 
 	// ========== PUBLIC ROUTES ==========
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret)
 	// Enable admin self-registration only in an isolated development environment.
-	if os.Getenv("BIGWASH_ENABLE_REGISTRATION") == "true" {
+	if cfg.LocalDev && os.Getenv("BIGWASH_ENABLE_REGISTRATION") == "true" {
 		r.POST("/api/v1/auth/register", authHandler.Register)
 	}
 	r.POST("/api/v1/auth/login", authHandler.Login)
@@ -91,8 +91,8 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 
 	// ========== WEBSOCKET ==========
 	if os.Getenv("BIGWASH_ENABLE_WS") == "true" {
-		wsHandler := handlers.NewWSHandler(hub)
-		r.GET("/api/v1/ws", wsHandler.Handle)
+		wsHandler := handlers.NewWSHandler(hub, db)
+		r.GET("/api/v1/ws", wsBearer, middleware.AuthMiddleware(cfg.JWTSecret), middleware.RequireStaff(db, false), wsHandler.Handle)
 	}
 
 	// ========== PANEL API (для пультов) ==========
@@ -132,7 +132,7 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 
 	// ========== ADMIN API (защищено JWT) ==========
 	api := r.Group("/api/v1")
-	api.Use(middleware.AuthMiddleware(cfg.JWTSecret))
+	api.Use(middleware.AuthMiddleware(cfg.JWTSecret), validResourceID, middleware.RequireStaff(db, false))
 	{
 		// The list contains phone numbers and email addresses: JWT is required.
 		api.GET("/clients", handlers.GetClientsHandler(db))
@@ -180,9 +180,9 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 			admins.GET("", adminHandler.List) // Добавлено получение всех админов
 			admins.GET("/stats", adminHandler.GetStats)
 			admins.GET("/:id", adminHandler.Get)
-			admins.POST("", adminHandler.Create)
-			admins.PUT("/:id", adminHandler.Update)
-			admins.DELETE("/:id", adminHandler.Delete)
+			admins.POST("", middleware.RequireStaff(db, true), adminHandler.Create)
+			admins.PUT("/:id", middleware.RequireStaff(db, true), adminHandler.Update)
+			admins.DELETE("/:id", middleware.RequireStaff(db, true), adminHandler.Delete)
 		}
 
 		// ========== CARDS ==========
@@ -218,7 +218,31 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 			stats.POST("/activities", statsHandler.AddActivity)
 
 			// Видалення
-			stats.DELETE("/all", statsHandler.DeleteAllStats)
+			stats.DELETE("/all", middleware.RequireStaff(db, true), statsHandler.DeleteAllStats)
 		}
 	}
+}
+
+// Browsers offer the bearer token as a subprotocol to keep it out of URLs.
+func wsBearer(c *gin.Context) {
+	if !websocket.IsWebSocketUpgrade(c.Request) {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+	protocols := websocket.Subprotocols(c.Request)
+	if c.GetHeader("Authorization") == "" && len(protocols) == 2 && protocols[0] == "bigwash.v1" {
+		c.Request.Header.Set("Authorization", "Bearer "+protocols[1])
+	}
+	c.Next()
+}
+
+func validResourceID(c *gin.Context) {
+	if id := c.Param("id"); id != "" {
+		value, err := strconv.ParseUint(id, 10, strconv.IntSize)
+		if err != nil || value == 0 {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid resource ID"})
+			return
+		}
+	}
+	c.Next()
 }

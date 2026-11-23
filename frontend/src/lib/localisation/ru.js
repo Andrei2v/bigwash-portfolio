@@ -161,6 +161,7 @@ export const t = {
     localCryptoUnavailable: "Web Crypto API недоступен. Откройте BigWash через доверенный HTTPS или localhost и проверьте поддержку браузера.",
     localOperationFailed: "Не удалось выполнить локальную авторизацию. Проверьте доступность хранилища браузера. Запрос авторизации в Go API не отправлялся.",
     loginTitle: "Авторизация",
+    registrationClosed: "Первичная регистрация завершена. Войдите в существующую учётную запись.",
     registerTitle: "Создать аккаунт",
     emailPlace: "Email или Телефон",
     passPlace: "Пароль",

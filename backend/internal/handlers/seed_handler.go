@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	secureRand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -29,17 +31,22 @@ type Tag struct {
 	Color string `json:"color"`
 }
 
-// SeedData - GET /api/v1/debug/seed
+// SeedData inserts test data in one transaction.
 func (h *SeedHandler) SeedData(c *gin.Context) {
-	// 1. ЖОРСТКЕ ОЧИЩЕННЯ ТАБЛИЦЬ
-	h.db.Exec("SET FOREIGN_KEY_CHECKS = 0;")
-	h.db.Exec("TRUNCATE TABLE transactions;")
-	h.db.Exec("TRUNCATE TABLE cards;")
-	h.db.Exec("TRUNCATE TABLE users;")
-	h.db.Exec("TRUNCATE TABLE admins;")
-	h.db.Exec("TRUNCATE TABLE roles;")
-	h.db.Exec("SET FOREIGN_KEY_CHECKS = 1;")
+	var message string
+	err := h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		var err error
+		message, err = seedData(tx)
+		return err
+	})
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "seed failed; no records were added"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": message})
+}
 
+func seedData(db *gorm.DB) (string, error) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	firstNames := []string{"Олександр", "Дмитро", "Єгор", "Іван", "Максим", "Андрій", "Артем", "Ярослав"}
 	lastNames := []string{"Коваленко", "Бойко", "Шевченко", "Голованець", "Ткаченко", "Кравченко"}
@@ -47,20 +54,26 @@ func (h *SeedHandler) SeedData(c *gin.Context) {
 	// ========================================================
 	// ЕТАП 1: РОЛІ ТА АДМІНІСТРАТОРИ
 	// ========================================================
-	// Створюємо базові ролі
-	h.db.Exec("INSERT INTO roles (id, name) VALUES (1, 'Власник'), (2, 'Адмін'), (3, 'Сервіс')")
-
-	// Хешуємо пароль для всіх тестових адмінів
-	hashedPassword, err := utils.HashPassword("password123")
-	if err != nil {
-		hashedPassword = "password123" // фолбек на всякий випадок
+	var adminRole, serviceRole models.Role
+	if err := db.Where("name IN ?", []string{"admin", "Адмін"}).First(&adminRole).Error; err != nil {
+		return "", err
 	}
-
+	if err := db.Where("name IN ?", []string{"service", "Сервіс"}).First(&serviceRole).Error; err != nil {
+		return "", err
+	}
+	var secret [32]byte
+	if _, err := secureRand.Read(secret[:]); err != nil {
+		return "", err
+	}
+	hashedPassword, err := utils.HashPassword(hex.EncodeToString(secret[:]))
+	if err != nil {
+		return "", err
+	}
 	var createdAdmins int
 	for i := 1; i <= 20; i++ {
-		roleID := 2 // Адмін за замовчуванням
-		if i == 1 {
-			roleID = 1 // Перший завжди Власник
+		roleID := adminRole.ID
+		if rng.Float32() > 0.5 {
+			roleID = serviceRole.ID
 		} else if rng.Float32() > 0.5 {
 			roleID = 3 // Інші випадково стають Сервісом
 		}
@@ -82,9 +95,8 @@ func (h *SeedHandler) SeedData(c *gin.Context) {
 			admin.SpecialCardUID = &cardUID
 		}
 
-		if err := h.db.Create(&admin).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Помилка створення адміна: %v", err)})
-			return
+		if err := db.Create(&admin).Error; err != nil {
+			return "", err
 		}
 		createdAdmins++
 	}
@@ -126,9 +138,8 @@ func (h *SeedHandler) SeedData(c *gin.Context) {
 			Balance:   userMoney,
 		}
 
-		if err := h.db.Create(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("БД отклонила юзера на шаге %d. Причина: %v", i, err)})
-			return
+		if err := db.Create(&user).Error; err != nil {
+			return "", err
 		}
 		createdUsers++
 
@@ -141,9 +152,8 @@ func (h *SeedHandler) SeedData(c *gin.Context) {
 			Discount: rng.Intn(15),
 		}
 
-		if err := h.db.Create(&card).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("БД отклонила карту на шаге %d. Причина: %v", i, err)})
-			return
+		if err := db.Create(&card).Error; err != nil {
+			return "", err
 		}
 		createdCards++
 	}
@@ -172,15 +182,11 @@ func (h *SeedHandler) SeedData(c *gin.Context) {
 			Balance:   userMoney,
 		}
 
-		if err := h.db.Create(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("БД отклонила юзера (без карты) на шаге %d. Причина: %v", i, err)})
-			return
+		if err := db.Create(&user).Error; err != nil {
+			return "", err
 		}
 		createdUsers++
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"status":  "ok",
-		"message": fmt.Sprintf("Успіх! Створено %d адмінів та %d клієнтів (%d карток).", createdAdmins, createdUsers, createdCards),
-	})
+	return fmt.Sprintf("Створено %d адміністраторів, %d клієнтів і %d карток.", createdAdmins, createdUsers, createdCards), nil
 }

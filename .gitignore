@@ -25,3 +25,7 @@
 **/.cache/
 .DS_Store
 Thumbs.db
+
+/backend/bigwash-api
+/backend/api
+/backend/*.exe

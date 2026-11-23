@@ -39,7 +39,7 @@ func (h *ControlPanelHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
 	var panel models.ControlPanel
-	if err := h.db.Preload("CarWash").First(&panel, id).Error; err != nil {
+	if err := h.db.Preload("CarWash").First(&panel, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "panel not found"})
 		return
 	}
@@ -49,12 +49,17 @@ func (h *ControlPanelHandler) Get(c *gin.Context) {
 
 // Create - создать пульт
 func (h *ControlPanelHandler) Create(c *gin.Context) {
-	var panel models.ControlPanel
-
-	if err := c.ShouldBindJSON(&panel); err != nil {
+	var req struct {
+		models.ControlPanel
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	panel := req.ControlPanel
+	panel.Password = req.Password
 
 	// ✅ DEFAULTS
 	if panel.TypePanel == "" {
@@ -71,7 +76,7 @@ func (h *ControlPanelHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&panel).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create panel"})
 		return
 	}
 
@@ -83,13 +88,12 @@ func (h *ControlPanelHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, panel)
 }
 
-
 // Update - обновить пульт
 func (h *ControlPanelHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
 	var panel models.ControlPanel
-	if err := h.db.First(&panel, id).Error; err != nil {
+	if err := h.db.First(&panel, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "panel not found"})
 		return
 	}
@@ -108,12 +112,11 @@ func (h *ControlPanelHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, panel)
 }
 
-
 // Delete - удалить пульт
 func (h *ControlPanelHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 
-	if err := h.db.Delete(&models.ControlPanel{}, id).Error; err != nil {
+	if err := h.db.Delete(&models.ControlPanel{}, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete panel"})
 		return
 	}
@@ -180,7 +183,7 @@ func (h *ControlPanelHandler) Reboot(c *gin.Context) {
 	id := c.Param("id")
 
 	var panel models.ControlPanel
-	if err := h.db.First(&panel, id).Error; err != nil {
+	if err := h.db.First(&panel, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "panel not found"})
 		return
 	}

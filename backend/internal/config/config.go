@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -11,6 +12,8 @@ type Config struct {
 	DBDsn     string
 	JWTSecret string
 	Port      string
+	BindHost  string
+	LocalDev  bool
 }
 
 func Load() *Config {
@@ -21,15 +24,20 @@ func Load() *Config {
 		DBDsn:     getEnv("DB_DSN", ""),
 		JWTSecret: getEnv("JWT_SECRET", ""),
 		Port:      getEnv("PORT", "8080"),
+		BindHost:  getEnv("BIGWASH_BIND_HOST", "127.0.0.1"),
+		LocalDev:  os.Getenv("BIGWASH_ENV") == "development",
 	}
 
 	if cfg.DBDsn == "" {
 		log.Fatal("DB_DSN is required; create backend/.env from backend/.env.example")
 	}
-	if cfg.JWTSecret == "" {
-		log.Fatal("JWT_SECRET is required; set a unique secret in backend/.env")
+	if len(strings.TrimSpace(cfg.JWTSecret)) < 32 || cfg.JWTSecret == "REPLACE_WITH_A_LONG_RANDOM_SECRET" {
+		log.Fatal("JWT_SECRET must be a unique random secret of at least 32 characters")
 	}
 
+	if cfg.LocalDev && cfg.BindHost != "127.0.0.1" && cfg.BindHost != "::1" {
+		log.Fatal("development API requires a loopback bind address")
+	}
 	return cfg
 }
 

@@ -65,7 +65,7 @@ func (h *AdminHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
 	var admin models.Admin
-	if err := h.db.Preload("Role").First(&admin, id).Error; err != nil {
+	if err := h.db.Preload("Role").First(&admin, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "admin not found"})
 			return
@@ -143,7 +143,7 @@ func (h *AdminHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
 	var admin models.Admin
-	if err := h.db.First(&admin, id).Error; err != nil {
+	if err := h.db.First(&admin, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "admin not found"})
 			return

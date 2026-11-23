@@ -198,7 +198,9 @@
     $effect(() => {
         if (DEMO_MODE) return;
         const socketURL = WS_URL.startsWith('/') ? `${window.location.origin.replace(/^http/, 'ws')}${WS_URL}` : WS_URL;
-        const socket = new WebSocket(socketURL);
+        const token = localStorage.getItem("token");
+        if (!token || !/^[\w-]+\.[\w-]+\.[\w-]+$/.test(token)) return;
+        const socket = new WebSocket(socketURL, ["bigwash.v1", token]);
 
         socket.onopen = () => {
             console.log("🟢 WebSocket Connected for Clients!");
@@ -210,7 +212,7 @@
                 const eventType = message.type;
                 const payload = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
 
-                // Go publishes partial client.* updates, so retain fields omitted from the payload.
+                // Retain fields omitted from a partial client update.
                 if (eventType === 'client.updated' || eventType === 'client.balance_changed') {
                     const index = clients.findIndex(c => c.id === payload.id);
                     if (index !== -1) {

@@ -34,7 +34,7 @@ func (h *CarWashHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
 	var carWash models.CarWash
-	if err := h.db.First(&carWash, id).Error; err != nil {
+	if err := h.db.First(&carWash, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "car wash not found"})
 		return
 	}
@@ -64,7 +64,7 @@ func (h *CarWashHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
 	var carWash models.CarWash
-	if err := h.db.First(&carWash, id).Error; err != nil {
+	if err := h.db.First(&carWash, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "car wash not found"})
 		return
 	}
@@ -86,7 +86,7 @@ func (h *CarWashHandler) Update(c *gin.Context) {
 func (h *CarWashHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 
-	if err := h.db.Delete(&models.CarWash{}, id).Error; err != nil {
+	if err := h.db.Delete(&models.CarWash{}, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete car wash"})
 		return
 	}

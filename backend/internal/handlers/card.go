@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type CardHandler struct {
@@ -199,7 +202,7 @@ func (h *CardHandler) CreateClientCard(c *gin.Context) {
 func (h *CardHandler) IncomeClientCard(c *gin.Context) {
 	var req struct {
 		CardUID string  `json:"card_uid" binding:"required"`
-		Amount  float64 `json:"amount" binding:"required"`
+		Amount  float64 `json:"amount" binding:"required,gt=0,lte=99999999.99"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -207,34 +210,15 @@ func (h *CardHandler) IncomeClientCard(c *gin.Context) {
 		return
 	}
 
-	var card models.Card
-	if err := h.db.First(&card, "uid = ?", req.CardUID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"status":  404,
-			"message": "Card not found",
-		})
+	card, err := h.replenish(c.Request.Context(), "uid = ?", req.CardUID, req.Amount, "System", "Поповнення через пульт")
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"status": 404, "message": "Card not found"})
 		return
 	}
-
-	card.Amount += req.Amount
-	card.TotalReplenishment += req.Amount
-
-	if err := h.db.Save(&card).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update card"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to replenish card"})
 		return
 	}
-
-	replenishment := models.Replenishment{
-		AdminName: "System",
-		Amount:    req.Amount,
-		UserName:  "Client",
-		CardID:    &card.ID,
-		Desc:      "Поповнення через пульт",
-		PayType:   "none",
-		IsChecked: true,
-	}
-
-	h.db.Create(&replenishment)
 
 	event := ws.NewEvent(ws.EventCardBalanceChange, gin.H{
 		"card_id":     card.ID,
@@ -291,7 +275,7 @@ func (h *CardHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
 	var card models.Card
-	if err := h.db.Preload("User").First(&card, id).Error; err != nil {
+	if err := h.db.Preload("User").First(&card, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
 			return
@@ -364,7 +348,7 @@ func (h *CardHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
 	var card models.Card
-	if err := h.db.First(&card, id).Error; err != nil {
+	if err := h.db.First(&card, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
 			return
@@ -434,7 +418,7 @@ func (h *CardHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 
 	var card models.Card
-	if err := h.db.First(&card, id).Error; err != nil {
+	if err := h.db.First(&card, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
 			return
@@ -461,16 +445,6 @@ func (h *CardHandler) Delete(c *gin.Context) {
 func (h *CardHandler) Replenish(c *gin.Context) {
 	id := c.Param("id")
 
-	var card models.Card
-	if err := h.db.First(&card, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch card"})
-		return
-	}
-
 	var req struct {
 		Amount float64 `json:"amount" binding:"required,gt=0"`
 	}
@@ -480,26 +454,15 @@ func (h *CardHandler) Replenish(c *gin.Context) {
 		return
 	}
 
-	card.Amount += req.Amount
-	card.TotalReplenishment += req.Amount
-
-	if err := h.db.Save(&card).Error; err != nil {
+	card, err := h.replenish(c.Request.Context(), "id = ?", id, req.Amount, "Web Admin", "Поповнення через веб-інтерфейс")
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
+		return
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to replenish card"})
 		return
 	}
-
-	replenishment := models.Replenishment{
-		AdminName: "Web Admin",
-		Amount:    req.Amount,
-		UserName:  "Client",
-		CardID:    &card.ID,
-		Desc:      "Поповнення через веб-інтерфейс",
-		PayType:   "none",
-		IsChecked: true,
-	}
-
-	h.db.Create(&replenishment)
-	h.db.Preload("User").First(&card, card.ID)
 
 	event := ws.NewEvent(ws.EventCardBalanceChange, gin.H{
 		"card_id":     card.ID,
@@ -518,7 +481,7 @@ func (h *CardHandler) Block(c *gin.Context) {
 	id := c.Param("id")
 
 	var card models.Card
-	if err := h.db.First(&card, id).Error; err != nil {
+	if err := h.db.First(&card, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
 			return
@@ -568,7 +531,7 @@ func (h *CardHandler) UpdateLastUsed(c *gin.Context) {
 	id := c.Param("id")
 
 	var card models.Card
-	if err := h.db.First(&card, id).Error; err != nil {
+	if err := h.db.First(&card, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
 			return
@@ -605,4 +568,21 @@ func getStringValue(user *models.User, field string) string {
 	default:
 		return ""
 	}
+}
+
+func (h *CardHandler) replenish(ctx context.Context, predicate string, key any, amount float64, actor, description string) (models.Card, error) {
+	var card models.Card
+	err := h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Preload("User").First(&card, predicate, key).Error; err != nil {
+			return err
+		}
+		card.Amount += amount
+		card.TotalReplenishment += amount
+		if err := tx.Model(&card).Select("amount", "total_replenishment").Updates(&card).Error; err != nil {
+			return err
+		}
+		record := models.Replenishment{AdminName: actor, Amount: amount, UserName: "Client", CardID: &card.ID, Desc: description, PayType: "none", IsChecked: true}
+		return tx.Create(&record).Error
+	})
+	return card, err
 }

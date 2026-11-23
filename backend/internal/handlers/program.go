@@ -36,7 +36,7 @@ func (h *ProgramHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
 	var program models.Program
-	if err := h.db.First(&program, id).Error; err != nil {
+	if err := h.db.First(&program, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "program not found"})
 		return
 	}
@@ -58,7 +58,7 @@ func (h *ProgramHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&program).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
 		return
 	}
 
@@ -68,13 +68,12 @@ func (h *ProgramHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, program)
 }
 
-
 // Update - обновить программу
 func (h *ProgramHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
 	var program models.Program
-	if err := h.db.First(&program, id).Error; err != nil {
+	if err := h.db.First(&program, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "program not found"})
 		return
 	}
@@ -102,7 +101,7 @@ func (h *ProgramHandler) Delete(c *gin.Context) {
 
 	// Проверяем можно ли удалить
 	var program models.Program
-	if err := h.db.First(&program, id).Error; err != nil {
+	if err := h.db.First(&program, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "program not found"})
 		return
 	}
@@ -112,7 +111,7 @@ func (h *ProgramHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.db.Delete(&models.Program{}, id).Error; err != nil {
+	if err := h.db.Delete(&models.Program{}, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete program"})
 		return
 	}
@@ -255,7 +254,7 @@ func (h *ProgramHandler) ListDiscounts(c *gin.Context) {
 				},
 			},
 		},
-		"sum_discounts":                  []gin.H{},
+		"sum_discounts":                 []gin.H{},
 		"total_replenishment_discounts": []gin.H{},
 		"new_client_discounts": gin.H{
 			"money": gin.H{

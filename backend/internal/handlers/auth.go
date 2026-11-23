@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type AuthHandler struct {
@@ -28,7 +29,7 @@ func NewAuthHandler(db *gorm.DB, jwtSecret string) *AuthHandler {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {
 		Email     string `json:"email" binding:"required,email"`
-		Password  string `json:"password" binding:"required,min=6"`
+		Password  string `json:"password" binding:"required,min=6,max=72"`
 		Firstname string `json:"firstname" binding:"required"`
 		Lastname  string `json:"lastname" binding:"required"`
 		Phone     string `json:"phone" binding:"required"`
@@ -43,59 +44,36 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
-	var exists int64
-	if err := h.db.Model(&models.Admin{}).
-		Where("LOWER(email) = ?", email).
-		Count(&exists).Error; err != nil {
-
-		_ = c.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "database error",
-		})
-		return
-	}
-
-	if exists > 0 {
-		c.JSON(http.StatusConflict, gin.H{
-			"error": "email already exists",
-		})
-		return
-	}
-
 	hash, err := utils.HashPassword(req.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to hash password",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid password length"})
 		return
 	}
-
-	var role models.Role
-	if err := h.db.Where("name = ?", "admin").
-		First(&role).Error; err != nil {
-
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "admin role not found",
-		})
+	admin := models.Admin{Firstname: req.Firstname, Lastname: req.Lastname, Email: email, Phone: req.Phone, Password: hash, IsActive: true}
+	bootstrapClosed := errors.New("owner already initialized")
+	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		var role models.Role
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("name IN ?", []string{"owner", "Власник"}).First(&role).Error; err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&models.Admin{}).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 0 {
+			return bootstrapClosed
+		}
+		admin.RoleID = role.ID
+		return tx.Create(&admin).Error
+	})
+	if errors.Is(err, bootstrapClosed) {
+		c.JSON(http.StatusConflict, gin.H{"error": "registration is closed"})
 		return
 	}
-
-	admin := models.Admin{
-		Firstname: req.Firstname,
-		Lastname:  req.Lastname,
-		Email:     email,
-		Phone:     req.Phone,
-		Password:  hash,
-		RoleID:    role.ID,
-	}
-
-	if err := h.db.Create(&admin).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to create user",
-		})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register owner"})
 		return
 	}
-
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "user registered successfully",
 		"user": gin.H{
@@ -142,7 +120,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	if !utils.CheckPassword(req.Password, admin.Password) {
+	if !admin.IsActive || !utils.CheckPassword(req.Password, admin.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": "invalid credentials",
 		})

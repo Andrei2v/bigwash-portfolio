@@ -20,75 +20,38 @@ func NewStatsHandler(db *gorm.DB) *StatsHandler {
 // GetDashboardStats - отримати всю статистику для дашборду
 // GET /api/v1/stats/dashboard
 func (h *StatsHandler) GetDashboardStats(c *gin.Context) {
-	today := time.Now().Format("2006-01-02")
-
-	// Отримуємо поточну статистику
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	db := h.DB.WithContext(c.Request.Context())
 	var dailyStats models.DailyStats
-	if err := h.DB.Where("date = ?", today).First(&dailyStats).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// Створюємо запис з тестовими даними
-			dailyStats = models.DailyStats{
-				Date:     time.Now(),
-				Profit:   125521.02,
-				Expenses: 25521.02,
-				Balance:  100000.00,
-			}
-			h.DB.Create(&dailyStats)
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	var clientStats models.ClientStats
+	paymentStats := []models.PaymentMethodStats{}
+	transactionStats := []models.TransactionStats{}
+	activities := []models.Activity{}
+	for _, target := range []any{&dailyStats, &clientStats} {
+		err := db.Where("date = ?", today).First(target).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
 			return
 		}
 	}
-
-	// Отримуємо статистику методів оплати
-	var paymentStats []models.PaymentMethodStats
-	h.DB.Where("date = ?", today).Find(&paymentStats)
-
-	if len(paymentStats) == 0 {
-		// Створюємо тестові дані
-		paymentStats = []models.PaymentMethodStats{
-			{Date: time.Now(), Method: "cash", Count: 245, Amount: 45250.00},
-			{Date: time.Now(), Method: "card", Count: 180, Amount: 28171.02},
-			{Date: time.Now(), Method: "paypass", Count: 280, Amount: 52100.00},
-		}
-		for _, stat := range paymentStats {
-			h.DB.Create(&stat)
+	for _, target := range []any{&paymentStats, &transactionStats} {
+		if err := db.Where("date = ?", today).Find(target).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
+			return
 		}
 	}
-
-	// Статистика клієнтів
-	var clientStats models.ClientStats
-	if err := h.DB.Where("date = ?", today).First(&clientStats).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			clientStats = models.ClientStats{
-				Date:           time.Now(),
-				NewClients:     150,
-				RegularClients: 100,
-				TotalClients:   250,
-			}
-			h.DB.Create(&clientStats)
-		}
+	if err := db.Order("time desc").Limit(5).Find(&activities).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
+		return
 	}
 
-	// Статистика транзакцій
-	var transactionStats []models.TransactionStats
-	h.DB.Where("date = ?", today).Find(&transactionStats)
-
-	if len(transactionStats) == 0 {
-		transactionStats = []models.TransactionStats{
-			{Date: time.Now(), Type: "cash", Amount: 45250.00, Count: 245},
-			{Date: time.Now(), Type: "paypass", Amount: 52100.00, Count: 280},
-			{Date: time.Now(), Type: "card", Amount: 28171.02, Count: 180},
-		}
-		for _, stat := range transactionStats {
-			h.DB.Create(&stat)
-		}
+	if dailyStats.Date.IsZero() {
+		dailyStats.Date = now
 	}
-
-	// Остання активність
-	var activities []models.Activity
-	h.DB.Order("time desc").Limit(5).Find(&activities)
-
+	if clientStats.Date.IsZero() {
+		clientStats.Date = now
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"daily_stats":       dailyStats,
 		"payment_methods":   paymentStats,
@@ -103,33 +66,10 @@ func (h *StatsHandler) GetDashboardStats(c *gin.Context) {
 func (h *StatsHandler) GetMonthlyChart(c *gin.Context) {
 	year := time.Now().Year()
 
-	var monthlyStats []models.MonthlyStats
-	h.DB.Where("year = ?", year).Order("month").Find(&monthlyStats)
-
-	// Якщо немає даних, створюємо тестові
-	if len(monthlyStats) == 0 {
-		testData := []struct {
-			month    int
-			profit   float64
-			expenses float64
-		}{
-			{1, 45000, 15000}, {2, 52000, 18000}, {3, 48000, 16000},
-			{4, 61000, 19000}, {5, 58000, 17000}, {6, 65000, 20000},
-			{7, 72000, 22000}, {8, 68000, 21000}, {9, 75000, 23000},
-			{10, 82000, 24000}, {11, 88000, 26000}, {12, 95000, 28000},
-		}
-
-		for _, data := range testData {
-			stat := models.MonthlyStats{
-				Year:     year,
-				Month:    data.month,
-				Profit:   data.profit,
-				Expenses: data.expenses,
-				Balance:  data.profit - data.expenses,
-			}
-			h.DB.Create(&stat)
-			monthlyStats = append(monthlyStats, stat)
-		}
+	monthlyStats := []models.MonthlyStats{}
+	if err := h.DB.WithContext(c.Request.Context()).Where("year = ?", year).Order("month").Find(&monthlyStats).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
+		return
 	}
 
 	c.JSON(http.StatusOK, monthlyStats)
@@ -200,7 +140,7 @@ func (h *StatsHandler) AddActivity(c *gin.Context) {
 
 	activity.Time = time.Now()
 	if err := h.DB.Create(&activity).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
 		return
 	}
 
@@ -239,13 +179,13 @@ func (h *StatsHandler) UpdateDailyStats(c *gin.Context) {
 			// Створюємо новий
 			stats.Date = time.Now()
 			if err := h.DB.Create(&stats).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
 				return
 			}
 			c.JSON(http.StatusOK, stats)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
 		return
 	}
 
@@ -255,7 +195,7 @@ func (h *StatsHandler) UpdateDailyStats(c *gin.Context) {
 	existing.Balance = stats.Balance
 
 	if err := h.DB.Save(&existing).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
 		return
 	}
 
@@ -277,7 +217,7 @@ func (h *StatsHandler) DeleteAllStats(c *gin.Context) {
 
 	for _, table := range tables {
 		if err := h.DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(table).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database operation failed"})
 			return
 		}
 	}

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"math"
 	"net/http"
 
 	"database/internal/database/models"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type TransactionHandler struct {
@@ -20,9 +23,9 @@ func NewTransactionHandler(db *gorm.DB, hub *ws.Hub) *TransactionHandler {
 }
 
 type ProgramTransaction struct {
-	ID              uint    `json:"id"`
-	Amount          float64 `json:"amount"`
-	DiscountPerCent int     `json:"discount_per_cent"`
+	ID              uint    `json:"id" binding:"required"`
+	Amount          float64 `json:"amount" binding:"gt=0,lte=99999999.99"`
+	DiscountPerCent int     `json:"discount_per_cent" binding:"gte=0,lte=100"`
 }
 
 // MakeTransactionByCard - POST /api/make/transaction/card
@@ -30,7 +33,7 @@ type ProgramTransaction struct {
 func (h *TransactionHandler) MakeTransactionByCard(c *gin.Context) {
 	var req struct {
 		CardUID  string               `json:"card_uid" binding:"required"`
-		Programs []ProgramTransaction `json:"programs" binding:"required"`
+		Programs []ProgramTransaction `json:"programs" binding:"required,min=1,max=100,dive"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -38,92 +41,54 @@ func (h *TransactionHandler) MakeTransactionByCard(c *gin.Context) {
 		return
 	}
 
-	// Получаем карту
+	panelID := c.GetUint("panel_id")
 	var card models.Card
-	if err := h.db.First(&card, "uid = ?", req.CardUID).Error; err != nil {
-		c.JSON(300, gin.H{
-			"status":  300,
-			"message": "Card not found",
-		})
+	var transaction models.Transaction
+	var amount float64
+	blocked := errors.New("card is blocked")
+	insufficient := errors.New("insufficient card balance")
+	err := h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&card, "uid = ?", req.CardUID).Error; err != nil {
+			return err
+		}
+		if card.IsBlocked {
+			return blocked
+		}
+		for _, prog := range req.Programs {
+			amount += math.Round(prog.Amount*100) - math.Round(prog.Amount*float64(prog.DiscountPerCent))
+		}
+		amount /= 100
+		if card.Amount < amount {
+			return insufficient
+		}
+		transaction = models.Transaction{ControlPanelID: panelID, UserID: card.UserID, CardID: &card.ID, CardUID: &card.UID, PayType: strPtr("card")}
+		if err := insertTransaction(tx, &transaction, req.Programs, true); err != nil {
+			return err
+		}
+		card.Amount -= amount
+		card.Turnover += amount
+		return tx.Model(&card).Select("amount", "turnover").Updates(&card).Error
+	})
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"status": 404, "message": "Card not found"})
 		return
-	}
-
-	// Проверяем заблокирована ли карта
-	if card.IsBlocked {
-		c.JSON(http.StatusForbidden, gin.H{
-			"status":  403,
-			"message": "Card is blocked",
-		})
+	case errors.Is(err, blocked):
+		c.JSON(http.StatusForbidden, gin.H{"status": 403, "message": "Card is blocked"})
 		return
-	}
-
-	// Получаем панель из контекста (устанавливается middleware)
-	panelID, exists := c.Get("panel_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "panel not authenticated"})
+	case errors.Is(err, insufficient):
+		c.JSON(http.StatusConflict, gin.H{"status": 409, "message": "Card amount is less than transaction amount"})
 		return
-	}
-
-	// Подсчитываем общую сумму
-	var totalAmount float64
-	var totalDiscount float64
-
-	for _, prog := range req.Programs {
-		discount := prog.Amount * float64(prog.DiscountPerCent) / 100
-		totalAmount += prog.Amount
-		totalDiscount += discount
-	}
-
-	finalAmount := totalAmount - totalDiscount
-
-	// Проверяем достаточно ли средств
-	if card.Amount < finalAmount {
-		c.JSON(301, gin.H{
-			"status":  301,
-			"message": "Card amount is less than transaction amount",
-		})
-		return
-	}
-
-	// Создаем транзакцию
-	transaction := models.Transaction{
-		ControlPanelID: panelID.(uint),
-		UserID:         card.UserID,
-		CardID:         &card.ID,
-		CardUID:        &card.UID,
-		PayType:        strPtr("card"),
-	}
-
-	if err := h.db.Create(&transaction).Error; err != nil {
+	case err != nil:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create transaction"})
 		return
 	}
-
-	// Создаем записи программ
-	for _, prog := range req.Programs {
-		discount := prog.Amount * float64(prog.DiscountPerCent) / 100
-
-		transactionProgram := models.TransactionProgram{
-			TransactionID:   transaction.ID,
-			ProgramID:       &prog.ID,
-			Amount:          prog.Amount,
-			Discount:        discount,
-			DiscountPerCent: prog.DiscountPerCent,
-		}
-
-		h.db.Create(&transactionProgram)
-	}
-
-	// Списываем средства с карты
-	card.Amount -= finalAmount
-	card.Turnover += finalAmount
-	h.db.Save(&card)
 
 	// 🔥 WEBSOCKET EVENT - уведомляем все админки о новой транзакции
 	event := ws.NewEvent(ws.EventTransactionCard, gin.H{
 		"transaction_id": transaction.ID,
 		"card_uid":       card.UID,
-		"amount":         finalAmount,
+		"amount":         amount,
 		"panel_id":       panelID,
 		"card_balance":   card.Amount,
 	})
@@ -139,7 +104,7 @@ func (h *TransactionHandler) MakeTransactionByCard(c *gin.Context) {
 // Провести транзакцию через наличные
 func (h *TransactionHandler) MakeTransactionByCash(c *gin.Context) {
 	var req struct {
-		Programs []ProgramTransaction `json:"programs" binding:"required"`
+		Programs []ProgramTransaction `json:"programs" binding:"required,min=1,max=100,dive"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -159,22 +124,11 @@ func (h *TransactionHandler) MakeTransactionByCash(c *gin.Context) {
 		PayType:        strPtr("cash"),
 	}
 
-	if err := h.db.Create(&transaction).Error; err != nil {
+	if err := h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		return insertTransaction(tx, &transaction, req.Programs, false)
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create transaction"})
 		return
-	}
-
-	// Создаем записи программ
-	for _, prog := range req.Programs {
-		transactionProgram := models.TransactionProgram{
-			TransactionID:   transaction.ID,
-			ProgramID:       &prog.ID,
-			Amount:          prog.Amount,
-			Discount:        0,
-			DiscountPerCent: 0,
-		}
-
-		h.db.Create(&transactionProgram)
 	}
 
 	// 🔥 WEBSOCKET EVENT
@@ -194,7 +148,7 @@ func (h *TransactionHandler) MakeTransactionByCash(c *gin.Context) {
 // Провести транзакцию через PayPass
 func (h *TransactionHandler) MakeTransactionByPaypass(c *gin.Context) {
 	var req struct {
-		Programs []ProgramTransaction `json:"programs" binding:"required"`
+		Programs []ProgramTransaction `json:"programs" binding:"required,min=1,max=100,dive"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -214,22 +168,11 @@ func (h *TransactionHandler) MakeTransactionByPaypass(c *gin.Context) {
 		PayType:        strPtr("paypass"),
 	}
 
-	if err := h.db.Create(&transaction).Error; err != nil {
+	if err := h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		return insertTransaction(tx, &transaction, req.Programs, false)
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create transaction"})
 		return
-	}
-
-	// Создаем записи программ
-	for _, prog := range req.Programs {
-		transactionProgram := models.TransactionProgram{
-			TransactionID:   transaction.ID,
-			ProgramID:       &prog.ID,
-			Amount:          prog.Amount,
-			Discount:        0,
-			DiscountPerCent: 0,
-		}
-
-		h.db.Create(&transactionProgram)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -293,4 +236,19 @@ func (h *TransactionHandler) SendCashHolderInfo(c *gin.Context) {
 
 func strPtr(s string) *string {
 	return &s
+}
+func insertTransaction(tx *gorm.DB, transaction *models.Transaction, programs []ProgramTransaction, applyDiscount bool) error {
+	if err := tx.Create(transaction).Error; err != nil {
+		return err
+	}
+	items := make([]models.TransactionProgram, 0, len(programs))
+	for _, program := range programs {
+		item := models.TransactionProgram{TransactionID: transaction.ID, ProgramID: &program.ID, Amount: math.Round(program.Amount*100) / 100}
+		if applyDiscount {
+			item.DiscountPerCent = program.DiscountPerCent
+			item.Discount = math.Round(program.Amount*float64(program.DiscountPerCent)) / 100
+		}
+		items = append(items, item)
+	}
+	return tx.Create(&items).Error
 }

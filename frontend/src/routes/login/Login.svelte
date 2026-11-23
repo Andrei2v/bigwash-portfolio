@@ -58,6 +58,10 @@
             return 'Невірний email або пароль.';
         }
 
+        if (action === 'register' && serverError === 'registration is closed') {
+            return language.t('auth.registrationClosed');
+        }
+
         if (status === 409 || serverError === 'email already exists') {
             return 'Користувач із таким email вже існує.';
         }

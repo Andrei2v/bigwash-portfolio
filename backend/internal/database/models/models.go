@@ -49,7 +49,7 @@ type Admin struct {
 	RoleID         uint      `gorm:"not null" json:"role_id"`
 	Role           Role      `gorm:"foreignKey:RoleID;constraint:OnDelete:RESTRICT" json:"role"`
 	SpecialCardUID *string   `gorm:"type:varchar(255);unique" json:"special_card_uid"` // ДОДАНО
-	IsActive       bool      `gorm:"default:true;not null" json:"is_active"`            // ДОДАНО
+	IsActive       bool      `gorm:"default:true;not null" json:"is_active"`           // ДОДАНО
 	RememberToken  *string   `gorm:"type:varchar(100)" json:"-"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -62,10 +62,10 @@ type User struct {
 	Lastname      string  `gorm:"type:varchar(255);not null"`
 	Email         string  `gorm:"type:varchar(255);uniqueIndex;not null"`
 	Phone         string  `gorm:"type:varchar(255);uniqueIndex;not null"`
-	Password      string  `gorm:"type:varchar(255);not null"`
+	Password      string  `gorm:"type:varchar(255);not null" json:"-"`
 	TagID         *uint   `gorm:"default:null"`
 	Tag           *Tag    `gorm:"foreignKey:TagID;constraint:OnDelete:SET NULL"`
-	RememberToken *string `gorm:"type:varchar(100)"`
+	RememberToken *string `gorm:"type:varchar(100)" json:"-"`
 	Balance       float64 `gorm:"type:decimal(10,2);default:0.00" json:"balance"` // ДОБАВЛЕНО
 	Tags          string  `gorm:"type:text" json:"tags"`                          // ДОБАВЛЕНО
 	CreatedAt     time.Time
@@ -163,7 +163,7 @@ type CarWash struct {
 type ControlPanel struct {
 	ID                     uint       `gorm:"primaryKey"`
 	Login                  string     `gorm:"type:varchar(255);uniqueIndex;not null"`
-	Password               string     `gorm:"type:varchar(255);not null"`
+	Password               string     `gorm:"type:varchar(255);not null" json:"-"`
 	Link                   *string    `gorm:"type:varchar(255)"`
 	TypePanel              string     `gorm:"type:enum('old','panel_v2');not null"`
 	Name                   string     `gorm:"type:varchar(255);not null"`
@@ -193,7 +193,7 @@ type ControlPanel struct {
 	ActiveMode             *string    `gorm:"type:varchar(255);default:null"`
 	CashboxHost            *string    `gorm:"type:varchar(255)"`
 	CashboxPort            *string    `gorm:"type:varchar(255)"`
-	CashboxToken           *string    `gorm:"type:varchar(255)"`
+	CashboxToken           *string    `gorm:"type:varchar(255)" json:"-"`
 	PrinterName            *string    `gorm:"type:varchar(255)"`
 	PaypassIP              *string    `gorm:"type:varchar(255)"`
 	PaypassPort            *string    `gorm:"type:varchar(255)"`
@@ -719,6 +719,7 @@ type FailedJob struct {
 	Exception  string    `gorm:"type:longtext;not null"`
 	FailedAt   time.Time `gorm:"type:timestamp;default:CURRENT_TIMESTAMP;not null"`
 }
+
 // AdminResponse - структура для відповіді API
 type AdminResponse struct {
 	ID             uint      `json:"id"`
@@ -740,7 +741,7 @@ func (a *Admin) ToResponse() AdminResponse {
 	if a.Role.Name != "" {
 		roleName = a.Role.Name
 	}
-	
+
 	return AdminResponse{
 		ID:             a.ID,
 		Firstname:      a.Firstname,
@@ -755,6 +756,7 @@ func (a *Admin) ToResponse() AdminResponse {
 		UpdatedAt:      a.UpdatedAt,
 	}
 }
+
 // ============================================================================
 // ДОДАТИ ЦІ СТРУКТУРИ ТА МЕТОДИ В КІНЕЦЬ ФАЙЛУ internal/database/models/models.go
 // ============================================================================
@@ -791,6 +793,7 @@ func (c *Card) ToResponse() CardResponse {
 		UpdatedAt:  c.UpdatedAt,
 	}
 }
+
 // ============================================================================
 // СТАТИСТИКА - ДОДАЙТЕ ЦІ МОДЕЛІ В КІНЕЦЬ ФАЙЛУ
 // ============================================================================
