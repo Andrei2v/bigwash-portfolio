@@ -37,7 +37,7 @@ func PanelAuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		// Парсим токен
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return []byte(jwtSecret), nil
-		})
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 
 		if err != nil || !token.Valid {
 			c.JSON(http.StatusForbidden, gin.H{
@@ -48,12 +48,19 @@ func PanelAuthMiddleware(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		// Извлекаем claims
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			c.Set("panel_id", uint(claims["panel_id"].(float64)))
-			c.Set("car_wash_id", uint(claims["car_wash_id"].(float64)))
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "invalid panel claims"})
+			return
 		}
-
+		panelID, panelOK := claims["panel_id"].(float64)
+		carWashID, washOK := claims["car_wash_id"].(float64)
+		if !panelOK || !washOK || panelID <= 0 || carWashID <= 0 || panelID != float64(uint64(panelID)) || carWashID != float64(uint64(carWashID)) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "invalid panel claims"})
+			return
+		}
+		c.Set("panel_id", uint(panelID))
+		c.Set("car_wash_id", uint(carWashID))
 		c.Next()
 	}
 }

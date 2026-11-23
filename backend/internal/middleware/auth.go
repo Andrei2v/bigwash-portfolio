@@ -30,7 +30,7 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		// Парсим токен
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return []byte(jwtSecret), nil
-		})
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 
 		if err != nil || !token.Valid {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
@@ -38,12 +38,20 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		// Извлекаем claims
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			c.Set("user_id", uint(claims["user_id"].(float64)))
-			c.Set("role", claims["role"].(string))
+		// Validate claims before casting: malformed tokens must never panic the API.
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token claims"})
+			return
 		}
-
+		userID, idOK := claims["user_id"].(float64)
+		role, roleOK := claims["role"].(string)
+		if !idOK || userID <= 0 || userID != float64(uint64(userID)) || !roleOK || role == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token claims"})
+			return
+		}
+		c.Set("user_id", uint(userID))
+		c.Set("role", role)
 		c.Next()
 	}
 }

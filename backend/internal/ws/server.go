@@ -3,12 +3,14 @@ package ws
 import (
 	"net/http"
 
+	"database/internal/middleware"
+
 	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		return middleware.OriginAllowed(r.Header.Get("Origin"))
 	},
 }
 

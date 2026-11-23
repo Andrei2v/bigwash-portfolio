@@ -1,4 +1,3 @@
-
 package handlers
 
 import (
@@ -239,9 +238,9 @@ func (h *AuthHandler) PanelLogin(c *gin.Context) {
 		}
 	}
 
-	token, err := utils.GenerateToken(
+	token, err := utils.GeneratePanelToken(
 		panel.ID,
-		"panel",
+		panel.CarWashID,
 		h.jwtSecret,
 	)
 

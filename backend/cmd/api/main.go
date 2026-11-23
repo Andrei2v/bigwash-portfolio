@@ -49,7 +49,7 @@ func main() {
 
 	// Статичні файли
 	router.Static("/web", "./web")
-	
+
 	// Редірект з головної на login
 	router.GET("/", func(c *gin.Context) {
 		c.Redirect(302, "/web/login.html")
@@ -70,7 +70,7 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 	if cfg.JWTSecret == "" {
 		log.Println("⚠️ ВНИМАНИЕ: JWT_SECRET пустой! Авторизация не будет работать.")
 	}
-	
+
 	// ========== DEBUG ==========
 	// Этот маршрут генерирует тестовые данные для проверки (Стереть базу и добавить 20 клиентов и админов)
 	if os.Getenv("BIGWASH_ENABLE_DEBUG_SEED") == "true" {
@@ -78,20 +78,22 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 		r.GET("/api/v1/debug/seed", seedHandler.SeedData)
 	}
 
-	// Регистр роута для получения всех клиентов (для фронта Svelte)
-	r.GET("/api/v1/clients", handlers.GetClientsHandler(db))
-
 	// ========== PUBLIC ROUTES ==========
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret)
-	r.POST("/api/v1/auth/register", authHandler.Register)
+	// Enable admin self-registration only in an isolated development environment.
+	if os.Getenv("BIGWASH_ENABLE_REGISTRATION") == "true" {
+		r.POST("/api/v1/auth/register", authHandler.Register)
+	}
 	r.POST("/api/v1/auth/login", authHandler.Login)
-	
+
 	// Panel Auth (для пультов)
 	r.POST("/api/login", authHandler.PanelLogin)
 
 	// ========== WEBSOCKET ==========
-	wsHandler := handlers.NewWSHandler(hub)
-	r.GET("/api/v1/ws", wsHandler.Handle)
+	if os.Getenv("BIGWASH_ENABLE_WS") == "true" {
+		wsHandler := handlers.NewWSHandler(hub)
+		r.GET("/api/v1/ws", wsHandler.Handle)
+	}
 
 	// ========== PANEL API (для пультов) ==========
 	panelAPI := r.Group("/api")
@@ -132,6 +134,9 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 	api := r.Group("/api/v1")
 	api.Use(middleware.AuthMiddleware(cfg.JWTSecret))
 	{
+		// The list contains phone numbers and email addresses: JWT is required.
+		api.GET("/clients", handlers.GetClientsHandler(db))
+
 		// Control Panels
 		panelHandler := handlers.NewControlPanelHandler(db, hub)
 		panels := api.Group("/control-panels")
@@ -185,13 +190,13 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 		cards := api.Group("/cards")
 		{
 			// CRUD операції
-			cards.GET("", cardHandler.List)                  // GET /api/v1/cards
-			cards.GET("/stats", cardHandler.GetStats)        // GET /api/v1/cards/stats
-			cards.GET("/:id", cardHandler.Get)               // GET /api/v1/cards/:id
-			cards.POST("", cardHandler.Create)               // POST /api/v1/cards
-			cards.PUT("/:id", cardHandler.Update)            // PUT /api/v1/cards/:id
-			cards.DELETE("/:id", cardHandler.Delete)         // DELETE /api/v1/cards/:id
-			
+			cards.GET("", cardHandler.List)           // GET /api/v1/cards
+			cards.GET("/stats", cardHandler.GetStats) // GET /api/v1/cards/stats
+			cards.GET("/:id", cardHandler.Get)        // GET /api/v1/cards/:id
+			cards.POST("", cardHandler.Create)        // POST /api/v1/cards
+			cards.PUT("/:id", cardHandler.Update)     // PUT /api/v1/cards/:id
+			cards.DELETE("/:id", cardHandler.Delete)  // DELETE /api/v1/cards/:id
+
 			// Спеціальні дії
 			cards.POST("/:id/replenish", cardHandler.Replenish)      // POST /api/v1/cards/:id/replenish
 			cards.POST("/:id/block", cardHandler.Block)              // POST /api/v1/cards/:id/block
@@ -203,17 +208,17 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, hub *ws.Hub, cfg *config.Config) {
 		stats := api.Group("/stats")
 		{
 			// Отримання статистики
-			stats.GET("/dashboard", statsHandler.GetDashboardStats)       
-			stats.GET("/monthly-chart", statsHandler.GetMonthlyChart)     
-			stats.GET("/payment-methods", statsHandler.GetPaymentMethods) 
-			stats.GET("/activities", statsHandler.GetActivities)          
+			stats.GET("/dashboard", statsHandler.GetDashboardStats)
+			stats.GET("/monthly-chart", statsHandler.GetMonthlyChart)
+			stats.GET("/payment-methods", statsHandler.GetPaymentMethods)
+			stats.GET("/activities", statsHandler.GetActivities)
 
 			// Оновлення статистики
-			stats.PUT("/daily", statsHandler.UpdateDailyStats)  
-			stats.POST("/activities", statsHandler.AddActivity) 
+			stats.PUT("/daily", statsHandler.UpdateDailyStats)
+			stats.POST("/activities", statsHandler.AddActivity)
 
 			// Видалення
-			stats.DELETE("/all", statsHandler.DeleteAllStats) 
+			stats.DELETE("/all", statsHandler.DeleteAllStats)
 		}
 	}
 }
